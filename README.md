@@ -1,4 +1,4 @@
-# Home-brew Intel 4004 Single Board Computer
+# Intel 4004 Single Board Computer
 ### Overview
 I built this Intel 4004 Single Board Computer a few years back to celebrate the 40th anniversary of the Intel 4004 CPU using ICs that I purchased on eBay. This homebrew, wire-wrap single board computer features:
 - Intel 4004 CPU
