@@ -89,8 +89,7 @@ getchar2c:     rd2                     ; read port Y
 
 ; receive the stop bit
                rd2                     ; read port Y
-               nop
-               ;wr3                    ; echo the received bit to port Z
+               nop                     ; replace this 'nop' with 'wr3' to echo the character bit by bit to port Z
                rar                     ; rotate least significant bit of port Y into carry                
                jcn c,getchar2d         ; jump if 1 (stopbit detected)
                bbl 1                   ; else return 1 to indicate stop bit was 0 (timing error)
