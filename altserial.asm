@@ -57,8 +57,7 @@ getchar2:      fim P7,GPIO
                 
 ; wait for the start bit (10 cycles)             
 getchar2a:     rd2                     ; read port Y 
-               nop
-               ;wr3                    ; echo the bit to port Z
+               nop                     ; replace this 'nop' with 'wr3' to echo the character bit by bit to port Z
                rar                     ; rotate least significant bit of port Y into carry
                jcn c,getchar2a         ; loop back until input is low (start bit)
                nop
@@ -69,8 +68,7 @@ getchar2a:     rd2                     ; read port Y
                 
 ; receive least significant bits 0-3. each bit takes 10 cycles                
 getchar2b:     rd2                     ; read port Y
-               nop
-               ;wr3                    ; echo the received bit to port Z
+               nop                     ; replace this 'nop' with 'wr3' to echo the character bit by bit to port Z
                rar                     ; rotate the received bit into carry
                ld R3                   ; recall the previously received bits from R3
                rar                     ; rotate carry into high order bit of the accumulator
@@ -81,8 +79,7 @@ getchar2b:     rd2                     ; read port Y
 
 ; receive most significant bits 4-7. each bit takes 9 cycles               
 getchar2c:     rd2                     ; read port Y
-               nop
-               ;wr3                    ; echo the received bit to port Z
+               nop                     ; replace this 'nop' with 'wr3' to echo the character bit by bit to port Z
                rar                     ; rotate the received bit into carry
                ld R2                   ; recall the previously received bits from R2
                rar                     ; rotate carry into high order bit of the accumulator
