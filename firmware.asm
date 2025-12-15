@@ -1,6 +1,18 @@
-    PAGE 0                          ; suppress page headings in ASW listing file
+            PAGE 0                      ; suppress page headings in ASW listing file
+            cpu 4040                    ; Tell the Macro Assembler AS that this source is for the Intel 4040.
+            
+;=============================================================================================
+; Firmware for the Intel 4004 Single Board Computer.
+;
+; Requires the use of a terminal emulator connected to the SBC
+; set for 9600 bps, 8 data bits, no parity, 1 stop bit.
+; (110 bps would probably be more period-correct but who's got that kinda time?)
+; 9600 bps serial I/O functions 'putchar' and 'getchar' adapted from 
+; Ryo Mukai's code at https://github.com/ryomuk/test4004
+; Assemble with the Macro Assembler AS V1.42 http://john.ccac.rwth-aachen.de:8000/as/
+;=============================================================================================
 ;---------------------------------------------------------------------------------------------------------------------------------
-; Copyright 2020 Jim Loos
+; Copyright 2023 Jim Loos
 ;
 ; Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files
 ; (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge,
@@ -14,17 +26,6 @@
 ; LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 ; IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ;---------------------------------------------------------------------------------------------------------------------------------
-
-;--------------------------------------------------------------------------------------------------
-; Firmware for the Intel 4004 Single Board Computer.
-; Requires the use of a terminal emulator connected to the SBC
-; set for 9600 bps, 8 data bits, no parity, 1 stop bit.
-; 9600 bps serial I/O functions 'putchar' and 'getchar' adapted from 
-; Ryo Mukai's code at https://github.com/ryomuk/test4004
-; Syntax is for the Macro Assembler AS V1.42 http://john.ccac.rwth-aachen.de:8000/as/
-;----------------------------------------------------------------------------------------------------
-
-            cpu 4040                    ; Tell the Macro Assembler AS that this source is for the Intel 4040.
 
 ; Conditional jumps syntax for Macro Assembler AS:
 ; jcn t     jump if test = 0 - positive voltage or +5VDC
@@ -40,6 +41,7 @@
 CR              equ 0DH
 LF              equ 0AH
 ESCAPE          equ 1BH
+CLS             equ "\e[2J\e[H"         ; VT100 escape sequence to clear screen and home cursor
 
 ; I/O port addresses
 SERIALPORT      equ 00H                 ; Address of the serial port. The least significant bit of port 00 is used for serial output.
@@ -64,6 +66,7 @@ CHIP1REG1       equ 50H                 ; 4002 data ram chip 1, registers 50-5FH
 CHIP1REG2       equ 60H                 ; 4002 data ram chip 1, registers 60-6FH
 CHIP1REG3       equ 70H                 ; 4002 data ram chip 1, registers 70-7FH
 
+                                        ; used by...
 accumulator     equ CHIP0REG0           ; multi-digit addition demo
 addend          equ CHIP0REG1           ; multi-digit addition demo
 minuend         equ CHIP0REG1           ; multi-digit subtraction demo
@@ -87,23 +90,16 @@ calcResults     equ CHIP0REG3           ; tic-tac-toe game
 ; Power-on-reset Entry
 ;--------------------------------------------------------------------------------------------------
                 nop                     ; "To avoid problems with power-on reset, the first instruction at
-                                        ; program address 0000 should always be an NOP." (dont know why)
+                                        ; program address 0000 should always be an NOP." (don't know why)
 reset:          fim P0,SERIALPORT
                 src P0
                 ldm 1
                 wmp                     ; set RAM serial output high to indicate 'MARK'
-                jms halfsecond          ; 500 millisecond delay
-                
-                fim P0,GPIO             ; address of the 4265 GPIO device
-                src P0
-                ldm GPIOMODE6           ; from the table above ports W and X inputs, ports Y and Z outputs
-                wmp                     ; program the 4265 for mode 6 (two 4 bit input ports, two 4-bit output ports)
-                ldm 1
-                wr3                     ; set alternate serial output (pin 14 of 4265) high to indicate 'MARK'
-                
-                jms newline
+
+                jms initflash           ; flash the LEDs on startup just to let us know the CPU is alive
+reset1:         jms clearscreen         ; clear screen and home cursor
                 jms banner              ; print "Intel 4004 SBC" or "Intel 4040 SBC"
-reset2:         jms ledsoff             ; all LEDs off
+reset2:         jms ledsoff             ; turn all LEDs off
 reset3:         jms menu                ; print the menu
 reset4:         jms getchar             ; wait for a character from serial input, the character is returned in P1
 
@@ -168,7 +164,7 @@ nomatch:        ld R9                   ; 'state' is kept in R9
                 ldm 2
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
                 sub R9                  ; compare 'state' in R9 to 2 by subtraction
-                jcn z,state2            ; jump if 'state' is 2
+                jcn z,state3            ; jump if 'state' is 2
 
                 ldm 0                   ; else reset 'state' back to zero
                 xch R9
@@ -184,16 +180,16 @@ state0:         fim P2,ESCAPE           ; state=0, we're waiting for the 1st ESC
 
 state1:         fim P2,ESCAPE           ; the 1st ESCAPE has been received, we're waiting for the 2nd ESCAPE
                 jms compare
-                jcn nz,state1a          ; is the character ESCAPE?
+                jcn nz,state2           ; is the character ESCAPE?
                 ldm 2                   ; else advance 'state' from 1 to 2
                 xch R9
                 jun reset4              ; the 2nd ESCAPE has been received, go back for the next character
 
-state1a:        ldm 0                   ; else reset 'state' back to 0
+state2:         ldm 0                   ; else reset 'state' back to 0
                 xch R9
                 jun reset2              ; display the menu options, go back for the next character
 
-state2:         ldm 0                   ; state=2, the 2nd ESCAPE has been received, now we're waiting for the "?"
+state3:         ldm 0                   ; state=2, the 2nd ESCAPE has been received, now we're waiting for the "?"
                 xch R9                  ; reset 'state' back to 0
                 fim P2,"?"
                 jms compare             ; was it '?'
@@ -205,22 +201,7 @@ state2:         ldm 0                   ; state=2, the 2nd ESCAPE has been recei
                 jun reset2              ; display the menu options, go back for the next character
 
 ;--------------------------------------------------------------------------------------------------
-; detects 4004 or 4040 CPU by using the "AN7" instruction.
-; available on the 4040 but not on the 4004.
-; returns 1 for 4004 CPU. returns 0 for 4040 CPU.
-;--------------------------------------------------------------------------------------------------
-detectCPU:      ldm 0
-                xch R7                  ; R7 now contains 0000
-                ldm 1111b               ; accumulator now contains 1111
-                an7                     ; logical AND the contents of the accumulator (1111) with contents of R7 (0000)
-                                        ; if 4040, the accumulator now contains 0000; if 4004, accumulator remains at 1111
-                rar                     ; rotate the least significant bit of the accumulator into carry
-                jcn c,detectCPU1        ; if carry is set, logical AND failed, must be a 4004
-                bbl 0                   ; return indicating 4040
-detectCPU1:     bbl 1                   ; return indicating 4004
-
-;--------------------------------------------------------------------------------------------------
-; turn off all four LEDs
+; turn off all four LEDs connected to the 4002 output port
 ;--------------------------------------------------------------------------------------------------
 ledsoff:        fim P0,LEDPORT
                 src P0
@@ -276,6 +257,24 @@ txtout1:        jms putchar             ; print the character in P1
                 inc R0                  ; else, increment most significant nibble of the pointer
 txtout2:        bbl 1                   ; not end of text, branch back with accumulator = 1
 
+;--------------------------------------------------------------------------------------------------
+; ten millisecond delay.  polls the serial port during the delay. 
+; returns immediately with accumulator=1 is the start bit is detected (test input goes low).
+; 907 cycles * 11.05 microseconds/cycle = 10,022 microseconds delay
+;--------------------------------------------------------------------------------------------------
+tenmsec:        fim P6,067H
+                fim P7,0EFH
+tenmsec1:       isz R12,tenmsec1
+                jcn tn,tenmsec2        ; early exit if start bit is detected
+                isz R13,tenmsec1
+                jcn tn,tenmsec2        ; early exit if start bit is detected
+                isz R14,tenmsec1
+                jcn tn,tenmsec2        ; early exit if start bit is detected
+                isz R15,tenmsec1
+                jcn tn,tenmsec2        ; early exit if start bit is detected
+                bbl 0                   ; return 0 if the start bit was not detected
+tenmsec2:       bbl 1                   ; return 1 if the start bit was detected
+
 ;-------------------------------------------------------------------------------
 ; this is the function that performs the multi-digit decimal subtraction
 ; for the subtraction demo below
@@ -320,24 +319,24 @@ subdemo1:       fim P2,minuend          ; P2 points the memory register where th
                 ldm 0                   ; up to 16 digits
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the first number (minuend)
-                jcn z,subdemo1a
-                jun reset2              ; control C exits
+                jcn z,subdemo2
+                jun reset1              ; control C exits
 
-subdemo1a:      jms newline
+subdemo2:       jms newline
                 jms secondnum           ; prompt for the second number (subtrahend)
                 fim P2,subtrahend       ; destination address for subtrahend: 2FH down to 20H
                 ldm 0                   ; up to 16 digits
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the second number (subtrahend)
-                jcn z,subdemo1b
-                jun reset2              ; control C exits
+                jcn z,subdemo3
+                jun reset1              ; control C exits
 
-subdemo1b:      jms newline
+subdemo3:       jms newline
                 jms prndiff             ; print "Difference:"
                 fim P1,minuend          ; P1 points to the 16 digit minuend  (number from which another is to be subtracted)
                 fim P2,subtrahend       ; P2 points to the 16 digit subtrahend (number to be subtracted from another)
                 jms subtract            ; subtract subtrahend from minuend
-                jcn z,subdemo3          ; zero means no overflow, the difference is a positive number
+                jcn z,subdemo4          ; zero means no overflow, the difference is a positive number
 
 ; the difference is a negative number
 ; convert from 10's complement...
@@ -348,12 +347,12 @@ subdemo1b:      jms newline
                 jms subtract            ; subtract the negative number from zero
                 fim P1,'-'              ; minus sign
                 fim P3,subtrahend       ; the result is in RAM at 20H-2FH
-                jun subdemo4            ; go print the converted result
+                jun subdemo5            ; go print the converted result
 
 ; the difference is a positive number
-subdemo3:       fim P3,minuend          ; P3 points to the result in RAM at 10H-1FH
+subdemo4:       fim P3,minuend          ; P3 points to the result in RAM at 10H-1FH
                 fim P1,' '              ; space
-subdemo4:       jms putchar             ; print a space
+subdemo5:       jms putchar             ; print a space
                 jms prndigits           ; print the 16 digits of the difference
                 jun subdemo1            ; go back for another pair of numbers
 
@@ -379,28 +378,28 @@ adddemo1:       fim P2,accumulator      ; P2 points the memory register where th
                 ldm 0                   ; up to 16 digits
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the first number
-                jcn z,adddemo1a
-                jun reset2              ; control C exits
+                jcn z,adddemo2
+                jun reset1              ; control C exits
 
-adddemo1a:      jms newline
+adddemo2:       jms newline
                 jms secondnum           ; prompt for the second number
                 fim P2,addend           ; destination address for second number
                 ldm 0                   ; up to 16 digits
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the second number
-                jcn z,adddemo1b
-                jun reset2              ; control C exits
+                jcn z,adddemo3
+                jun reset1              ; control C exits
 
-adddemo1b:      jms newline
+adddemo3:       jms newline
                 jms prnsum              ; print "Sum: "
                 fim P1,accumulator      ; P1 points to the first 16 digit number (called the accumulator)
                 fim P2,addend           ; P2 points to the second 16 digit number (called the addend) to be added to the first
                 jms addition            ; add the two numbers
-                jcn zn,adddemo2         ; jump if overflow
+                jcn zn,adddemo4         ; jump if overflow
                 fim P3,accumulator      ; P3 points to the sum
                 jms prndigits           ; print the 16 digits of the sum
                 jun adddemo1            ; go back for another pair of numbers
-adddemo2:       jms prnoverflow         ; the sum of the two numbers overflows 16 digits
+adddemo4:       jms prnoverflow         ; the sum of the two numbers overflows 16 digits
                 jun adddemo1            ; go back for another pair of numbers
 
 ;-------------------------------------------------------------------------------
@@ -450,19 +449,19 @@ multdemo1:      fim P2,multiplicand     ; P2 points the memory register where th
                 ldm 16-8                ; up to 8 digits
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the multiplicand (8 digits max) into RAM at 15H-1CH
-                jcn z,multdemo1a
-                jun reset2              ; control C exits
+                jcn z,multdemo2
+                jun reset1              ; control C exits
 
-multdemo1a:     jms newline
+multdemo2:      jms newline
                 jms secondnum           ; prompt for the multiplier
                 fim P2,multiplier+4     ; destination address for multiplier (24H)
                 ldm 16-8                ; up to 8 digits
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the multiplier (8 digits max) into RAM at 24H-2BH
-                jcn z,multdemo1b
-                jun reset2              ; control C exits
+                jcn z,multdemo3
+                jun reset1              ; control C exits
 
-multdemo1b:     jms newline
+multdemo3:      jms newline
                 jms prnproduct          ; print "Product: "
                 fim P1,multiplicand     ; multiplicand
                 fim P2,multiplier       ; multiplier
@@ -481,8 +480,8 @@ multdemo1b:     jms newline
 putchar:        fim P7,SERIALPORT
                 src P7                  ; set port address
                 ldm 16-5
-                xch R14                 ; 5 bits (start bit plus bits 0-3)
-                ld R3
+                xch R14                 ; R14 is the counter for 5 bits (start bit plus bits 0-3)
+                ld R3                   ; load bits 0-3 from R3
                 clc                     ; clear carry to make the start bit
                 ral
             
@@ -495,11 +494,10 @@ putchar1:       nop
                 wmp
                 rar
                 isz R14, putchar1
-
-                ldm 16-5                ; 5 bits (bits 4-8 plus stop bit)
+                ldm 16-5                ; R14 is the counter for 5 bits (bits 4-7 plus stop bit)
                 xch R14
-                ld R2
-                stc
+                ld R2                   ; load bits 4-7 from R2
+                stc                     ; carry will eventually become the start bit
                 nop
                 nop
 
@@ -511,8 +509,8 @@ putchar2:       wmp
                 nop
                 nop
                 nop
-                rar
-                isz R14, putchar2
+                rar                    ; rotate next bit into position
+                isz R14, putchar2      
                 bbl 0
 
                 org 0200H               ; next page
@@ -542,19 +540,19 @@ divdemo1:       fim P2,dividend         ; P2 points the memory register where th
                 ldm 16-7                ; maximum of 7 digits for the dividend
                 xch R13                 ; R13 is the digit counter for the getnumber function
                 jms getnumber           ; get the dividend
-                jcn z,divdemo1a
-                jun reset2              ; control C exits
+                jcn z,divdemo2
+                jun reset1              ; control C exits
 
-divdemo1a:      jms newline
+divdemo2:       jms newline
                 jms secondnum           ; prompt for the divisor
                 fim P2,divisor          ; destination address for the divisor (20H-27H)
                 ldm 16-8                ; maximum of 8 digits for the divisor
                 xch R13                 ; R13 is the digit counter for the getnumber function (8 digits)
                 jms getnumber           ; get the divisor
-                jcn z,divdemo1b
-                jun reset2              ; control C exits
+                jcn z,divdemo3
+                jun reset1              ; control C exits
 
-divdemo1b:      jms newline
+divdemo3:       jms newline
                 jms prnquotient         ; print "Quotient:"
                 fim P1,dividend         ; points to dividend
                 fim P2,remainder        ; points to remainder
@@ -573,28 +571,28 @@ divdemo1b:      jms newline
 leddemo1:       ldm 0001B               ; start with the first LED
                 fim P0,LEDPORT
                 src P0
-leddemo11:      wmp                     ; output to port to turn on LED
+leddemo1a:      wmp                     ; output to port to turn on LED
                 xch R0                  ; the accumulator need to be saved in R0 since the 'bbl' instruction overwrites the accumulator
                 jms leddelay            ; delay for 100 milliseconds. abort by jumping to reset if start bit detected
                 jcn z,$+4               ; jump around  the next instruction if the start bit not detected
-                jun reset2              ; a key has been pressed (start bit detected), go back to the beginning
+                jun reset1              ; a key has been pressed (start bit detected), go back to the beginning
 
                 xch R0                  ; restore the accumulator from R0
                 clc                     ; the carry bit needs to be cleared since the delay subroutine sets the carry bit
                 ral                     ; rotate the accumulator left thru carry
-                jcn cn,leddemo11        ; jump if cy=0
+                jcn cn,leddemo1a        ; jump if cy=0
                 ldm 0100B               ; change directions, start shifting right.
-leddemo12:      wmp
+leddemo1b:      wmp
                 xch R0
                 jms leddelay            ; delay for 100 milliseconds. abort by jumping to reset if start bit detected
                 jcn z,$+4               ; jump around  the next instruction if the start bit not detected
-                jun reset2              ; a key has been pressed (start bit detected), go back to the beginning
+                jun reset1              ; a key has been pressed (start bit detected), go back to the beginning
                 xch R0
                 clc
                 rar
-                jcn cn,leddemo12
+                jcn cn,leddemo1b
                 ldm 0010B               ; change directions, go back to shifting left
-                jun leddemo11
+                jun leddemo1a
 
 ;-----------------------------------------------------------------------------------------
 ; Another flashing LED demo.
@@ -604,27 +602,27 @@ leddemo12:      wmp
 leddemo2:       fim P0,LEDPORT          ; define the led port for port writes
                 src P0
                 ldm 0001B               ; one LED
-                jms leddemo21
+                jms leddemo2a
                 ldm 0011B               ; two LEDs
-                jms leddemo21
+                jms leddemo2a
                 ldm 0111B               ; three LEDs
-                jms leddemo21
+                jms leddemo2a
                 ldm 1111b               ; all four LEDs
-                jms leddemo21
+                jms leddemo2a
                 ldm 1110B               ; back to three LEDs
-                jms leddemo21
+                jms leddemo2a
                 ldm 1100B               ; back to two LEDs
-                jms leddemo21
+                jms leddemo2a
                 ldm 1000B               ; back to one LED
-                jms leddemo21
+                jms leddemo2a
                 ldm 0000B               ; all LEDs off
-                jms leddemo21
+                jms leddemo2a
                 jun leddemo2            ; go back and repeat
 
-leddemo21:      wmp                     ; output to port to turn on LEDs
+leddemo2a:      wmp                     ; output to port to turn on LEDs
                 jms leddelay            ; delay for 100 milliseconds
                 jcn z,$+4               ; jump around the next instruction if the start bit not detected
-                jun reset2              ; a key has been pressed (start bit detected), go back to the beginning
+                jun reset1              ; a key has been pressed (start bit detected), go back to the beginning
                 bbl 0
 
 ;-----------------------------------------------------------------------------------------
@@ -649,54 +647,53 @@ leddelay3:      isz R14,leddelay3       ; inner loop 1 millisecond delay
 
 ;-----------------------------------------------------------------------------------------
 ; Display the position of the 16 position rotary switch using the serial port and LEDs.
+; P3 holds the address of the 4265. P2 holds the address of the LEd port.
 ; R10 holds the current switch reading. R11 holds the previous switch reading.
 ;-----------------------------------------------------------------------------------------
-switchdemo:     ldm 0
-                fim P2, LEDPORT
+switchdemo:     fim P3,GPIO             ; address of the 4265 GPIO device
+                src P3
+                ldm GPIOMODE7           ; from the table above: ports W, X and Y as inputs, port Z as output
+                wmp                     ; program the 4265 for mode 7 (three 4-bit input ports, one 4-bit output port)
+                fim P2,LEDPORT
                 src P2
+                ldm 0                
                 wmp                     ; turn off all four LEDs
                 xch R11                 ; initialize R11 to zero
-                ldm 0001B
-                fim P0,SERIALPORT
-                src P0
-                wmp                     ; set serial port output high (MARK)
-readsw:         jms newline             ; position the cursor to the beginning of the next line
-                fim P3,GPIO
+switchdemo1:    jms newline             ; position the cursor to the beginning of the next line
                 src P3                  ; address of the 4265 GPIO
-readsw1:        rd0                     ; read port W of the 4265 GPIO
+switchdemo2:    rd0                     ; read port W of the 4265 GPIO
                 xch R10                 ; save the current switch reading in R10
                 jms tenmsec             ; ten millisecond delay for switch de-bouncing
-                jcn zn,exitswdemo       ; exit if start bit is detected
+                jcn zn,switchdemo4      ; exit if start bit is detected
                 jms tenmsec             ; ten millisecond delay for switch de-bouncing
-                jcn zn,exitswdemo       ; exit if start bit is detected
+                jcn zn,switchdemo4      ; exit if start bit is detected
                 jms tenmsec             ; ten millisecond delay for switch de-bouncing
-                jcn zn,exitswdemo       ; exit if start bit is detected
+                jcn zn,switchdemo4      ; exit if start bit is detected
                 rd0                     ; re-read the switches
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
                 sub R10                 ; R10 contains the switch reading from 30 milliseconds ago
-                jcn nz,readsw1          ; go back if two readings 30 milliseconds apart don't match (contacts are still bouncing)
+                jcn nz,switchdemo2      ; go back if two readings 30 milliseconds apart don't match (contacts are still bouncing)
                 ld R11                  ; recall the previous switch reading
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
                 sub R10                 ; compare to the current reading by subtraction
-                jcn z,readsw1           ; go back if the switch has not changed
+                jcn z,switchdemo2       ; go back if the switch has not changed
                 ld R10                  ; recall the current switch reading from R10
                 xch R11                 ; save it in R11 for next time
                 ld R10
                 cma                     ; complement the switch reading since closed contacts pull low (i.e. position '0' = 1111, position 'F' = 0000)
-                fim P2, LEDPORT
                 src P2
                 wmp                     ; turn on LEDs to indicate switch position
                 fim P0,lo(positions)    ; lo byte of the address "positions"
                 clc                     ; clear carry in preparation for 'add with carry' instruction       
                 add R1
-                jcn cn,nocarry          ; jump if no carry (overflow) from the addition of R1 to the accumulator
+                jcn cn,switchdemo3      ; jump if no carry (overflow) from the addition of R1 to the accumulator
                 inc R0
-nocarry:        xch R1
+switchdemo3:    xch R1
                 fin P1                  ; get the character indexed by the switch setting into P1
                 jms putchar             ; print the character in P1
-                jun readsw              ; go back and do it again if TEST input is 0 (the start bit has not been received)
+                jun switchdemo1         ; go back and do it again if TEST input is 0 (the start bit has not been received)
 
-exitswdemo      jun reset2
+switchdemo4:    jun reset1
 
 positions:      data    "0123456789ABCDEF"
 
@@ -936,7 +933,6 @@ getchar0:       ldm 16-4                ; 4 bits
                 ldm 16-3
                 xch R15
                 isz R15,$               ; 12 cycles between start bit and bit 0
-
 ; receive bits 0-3
 getchar1:       jcn tn,getchar2         ; jump if the test input==1
                 stc                     ; if test input==0, then cy=1
@@ -945,12 +941,10 @@ getchar2:       clc                     ; if test input==1, then cy=0
                 jun getchar3
 getchar3:       rar                     ; rotate carry into accumulator
                 nop                     ; 9 cycles/bit (error=-0.645 cycle/bit)
-                isz r14, getchar1       ; repeat until all 4 bits (0-3) received.  phase(here)= 2.355 -0.645*3 = 0.42cycle
-                                        
+                isz r14, getchar1       ; repeat until all 4 bits (0-3) received.
                 xch R3                  ; save received bits 0-3 in R3
                 ldm 16-4
                 xch R14                 ; R14 is the counter for the next 4 bits (bits 4-8)
-
 ; receive bits 4-8                                    
 getchar4:       jcn tn,getchar5         ; jump if the test input==1
                 stc                     ; if test input==0, then cy=1
@@ -1041,7 +1035,8 @@ DV2             src P4
 ATLAST          bbl 0
 
 ;--------------------------------------------------------------------------------------------------
-; Simple number guessing game. The player tries to guess a pseudo-random number from 0 to 99.
+; Simple number guessing game. The player tries to guess a pseudo-random number
+; from 0 to 99 in the fewest number of tries.
 ;--------------------------------------------------------------------------------------------------
 guessgame:      jms guessgameintro      ; print "Try to guess the number..."
 guessgame1:     fim P2,randomnumber
@@ -1076,7 +1071,7 @@ guessgame3:     fim P2,attempts
                 wrm                     ; set increment to 1
                 
 ; prompt the player for a guess...
-guessgame5:     fim P1,attempts
+guessgame4:     fim P1,attempts
                 fim P2,increment
                 jms addition            ; increment the number of attempts
                 jms promptguess         ; prompt "Your guess: "
@@ -1086,16 +1081,16 @@ guessgame5:     fim P1,attempts
                 xch R13                 ; R13 is the digit counter
                 fim P2,guess
                 jms getnumber           ; get the player's guess as two digits
-                jcn z,guessgame5a
-                jun reset2              ; control C exits
+                jcn z,guessgame5
+                jun reset1              ; control C exits
 
 ; the pseudo-random number is subtracted from the player's guess. The difference replaces the guess i.e. *P1=*P1-*P2
-guessgame5a:    fim P1,guess            ; player's guess
+guessgame5:     fim P1,guess            ; player's guess
                 fim P2,randomnumber     ; pseudo-random number
                 jms subtract            ; subtract the pseudo-random number from the player's guess
                 jcn z,guessgame6        ; jump if the difference is positive (the guess is greater than or equal to the random number
                 jms toolow              ; the difference is negative. i.e. the guess is less than the random number. print "Too low."
-                jun guessgame5
+                jun guessgame4
 
 ; the difference between the pseudo-random number and the player's guess is not negative, check to
 ; see if the difference is zero indicating the two numbers were equal indicating the guess is correct
@@ -1108,7 +1103,7 @@ guessgame7:     src P1
                 fim P3,attempts
                 jms prndigits
                 jms success2
-                jms again               ; prompt "Play again? (Y/N)"
+                jms playagain           ; prompt "Play again? (Y/N)"
                 jms getchar
                 fim P2,'Y'              ; is it "Y"
                 jms compare
@@ -1116,19 +1111,20 @@ guessgame7:     src P1
                 fim P2,'y'              ; is it "y"
                 jms compare
                 jcn z,guessgame         ; go back for another game
-                jun reset
+                jun reset1
 
 ; the difference  between the pseudo-random number and the player's guess is neither negative
 ; nor zero thus the player's guess must be greater than the pseudo-random number.
 guessgame8:     jms toohigh
-                jun guessgame5
+                jun guessgame4
 
 ;--------------------------------------------------------------------------------
 ; part of the Tic-Tac-Toe game...                
-; if this is the computer's first move, check the corner squares. if the player has taken one of the
-; corners, the computer selects the middle square for its move. if all the corners are empty, the 
-; computer randomly selects one of the corner squares for its move. otherwise, jump to the 'randomMove'
-; function to randomly select an open square in the OXO grid for the computer's move.
+; if this is the computer's first move, check the corner squares. if the player has
+; taken one of the corners, the computer selects the middle square for its move. if 
+; all the corners are empty, the computer randomly selects one of the corner squares
+; for its move. otherwise, jump to the 'randomMove' function to randomly select an
+; open square in the OXO grid for the computer's move.
 ;--------------------------------------------------------------------------------
 strategicMove:  fim P7,grid             ; P7 points to the start of the OXO grid
                 src P7
@@ -1442,23 +1438,26 @@ getnumber4:     src P3                  ; use address in P3 for RAM reads
                 bbl 0
 
                 org 0600H               ; next page
+;--------------------------------------------------------------------------------------------------
+; detects 4004 or 4040 CPU by using the "AN7" instruction.
+; available on the 4040 but not on the 4004.
+; returns 1 for 4004 CPU. returns 0 for 4040 CPU.
+;--------------------------------------------------------------------------------------------------
+detectCPU:      ldm 0
+                xch R7                  ; R7 now contains 0000
+                ldm 1111b               ; accumulator now contains 1111
+                an7                     ; logical AND the contents of the accumulator (1111) with contents of R7 (0000)
+                                        ; if 4040, the accumulator now contains 0000; if 4004, accumulator remains at 1111
+                rar                     ; rotate the least significant bit of the accumulator into carry
+                jcn c,detectCPU1        ; if carry is set, logical AND failed, must be a 4004
+                bbl 0                   ; return indicating 4040
+detectCPU1:     bbl 1                   ; return indicating 4004
+                
 ;-----------------------------------------------------------------------------------------
-; 45250 cycles * 11.05 microseconds/cycle = 500,012 microseconds delay
-;-----------------------------------------------------------------------------------------
-halfsecond: fim P6,0A2H
-            fim P7,0DAH
-            nop
-            
-dly:        isz R12,dly
-            isz R13,dly
-            isz R14,dly
-            isz R15,dly
-            bbl 0                
-;-----------------------------------------------------------------------------------------
-; print the menu options
+; print the menu options.
 ; note: this function and the text it references need to be on the same page.
 ;-----------------------------------------------------------------------------------------
-menu:           fim P0,lo(menutxt)
+menu:           fim P0,lo(menutxt)      ; point to the first character of the string to be printed
                 fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
                 jcn zn,$-3              ; go back for the next character
@@ -1530,26 +1529,37 @@ clrram1:        src P2
 ; print functions for the addition and subtraction demos.
 ; note: these functions and the text they reference need to be on the same page.
 ;-----------------------------------------------------------------------------------------
+; clear the screen and home the cursor using the VT100 escape sequence
+clearscreen:    fim P0,lo(clearscreentxt)
+                jun page7print
+
+; prompt for the first integer
 firstnum:       fim P0,lo(firsttxt)
-                jun page8print
+                jun page7print
 
+; prompt for the second integer
 secondnum:      fim P0,lo(secondtxt)
-                jun page8print
+                jun page7print
 
-prnsum:         fim P0,lo(sumtxt)
-                jun page8print
+; print 'Sum'
+prnsum:         fim P0,lo(sumtxt) 
+                jun page7print
 
-prnoverflow:    fim P0,lo(overtxt)
-                jun page8print
+; print 'Overflow!'
+prnoverflow:    fim P0,lo(overtxt)  
+                jun page7print
 
-prndiff:        fim P0,lo(difftxt)
-                jun page8print
+; print 'Difference:'
+prndiff:        fim P0,lo(difftxt)  
+                jun page7print
 
+; print 'Product:'
 prnproduct:     fim P0,lo(producttxt)
-                jun page8print
+                jun page7print
 
-prnquotient:    fim P0,lo(quottxt)
-page8print:     fin P1                  ; fetch the character pointed to by P0 into P1
+; print 'Quotient:'
+prnquotient:    fim P0,lo(quottxt) 
+page7print:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
                 jcn zn,$-3              ; go back for the next character
                 bbl 0
@@ -1566,56 +1576,37 @@ banner:         fim P0,lo(banner04txt)  ; assume 4004
                 jms detectCPU           ; detect 4004 or 4040 cpu
                 jcn zn,banner1          ; non-zero means 4004
                 fim P0,lo(banner40txt)
-banner1:        jun page8print
+banner1:        jun page7print
 
 banner04txt:    data CR,LF,"Intel 4004 SBC",0
 banner40txt:    data CR,LF,"Intel 4040 SBC",0
 
-; inform the player that he's won the game of tic-tac-toe
-printPlayerWon: fim P0,lo(playerWontxt)
-                jun page8print
-
-playerWontxt:   data CR,LF
-                data "You Won!",0
+clearscreentxt  data CLS,0
 
                 org 0800H               ; next page
-;--------------------------------------------------------------------------------------------------
-; ten millisecond delay.  polls the serial port during the delay. 
-; returns immediately with accumulator=1 is the start bit is detected.
-; 907 cycles * 11.05 microseconds/cycle = 10,022 microseconds delay
-;--------------------------------------------------------------------------------------------------
-tenmsec:        fim P6,067H
-                fim P7,0EFH
-delayloop:      isz R12,delayloop
-                jcn tn,delayexit        ; early exit if start bit is detected
-                isz R13,delayloop
-                jcn tn,delayexit        ; early exit if start bit is detected
-                isz R14,delayloop
-                jcn tn,delayexit        ; early exit if start bit is detected
-                isz R15,delayloop
-                jcn tn,delayexit        ; early exit if start bit is detected
-                bbl 0                   ; return 0 if the start bit was not detected
-delayexit:      bbl 1                   ; return 1 if the start bit was detected
-                
 ;-----------------------------------------------------------------------------------------
 ; print the instructions for the addition demo and Tic-Tac-Toe game.
 ; note: these functions and the text they reference need to be on the same page.
 ;-----------------------------------------------------------------------------------------
 ; prompt for the player's tic-tac-toe square
 printPrompt:    fim P0,lo(moveprompttxt)
-                jun page9print
+                jun page8print
 
 ; inform the player that the tic-tac-toe game is tied
 printGameTied:  fim P0,lo(tiegametxt)
-                jun page9print
+                jun page8print
 
 ; inform the player that the computer has won the tic-tac-toe game
 printCompWon:   fim P0,lo(computerwontxt)
-                jun page9print
+                jun page8print
+                
+; inform the player that he's won the game of tic-tac-toe
+printPlayerWon: fim P0,lo(playerWontxt)
+                jun page8print                
 
 ; print the instructions for the decimal addition demo
 addinstr:       fim P0,lo(addtxt)
-page9print:     fin P1                  ; fetch the character pointed to by P0 into P1
+page8print:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
                 jcn zn,$-3              ; not yet at the end of the string, go back for the next character
                 bbl 0
@@ -1627,25 +1618,57 @@ addtxt:         data CR,LF,LF
 
 computerwontxt: data CR,LF
                 data "The Computer wins!",0
+                
+playerWontxt:   data CR,LF
+                data "You Won!",0                
 
 tiegametxt:     data CR,LF
                 data "The game is a draw!",CR,LF,0
 
 moveprompttxt:  data CR,LF
                 data "Your move? (1-9) ",0
+                
+
 
                 org 0900H               ; next page
+;-----------------------------------------------------------------------------------------
+; flash the LEDs on startup just to let us know the CPU is alive
+;-----------------------------------------------------------------------------------------                
+initflash:      fim P0,LEDPORT          
+                src P0
+                ldm 0001B     
+                jms initflashdelay
+                ldm 0011B     
+                jms initflashdelay
+                ldm 0111B     
+                jms initflashdelay
+                ldm 1111b     
+                jms initflashdelay
+                ldm 1110B     
+                jms initflashdelay
+                ldm 1100B     
+                jms initflashdelay
+                ldm 1000B     
+                jms initflashdelay
+                ldm 0000B  
+                wmp                
+                bbl 0
+                
+initflashdelay: wmp                     ; output to port to turn on LEDs
+                jms leddelay            ; delay for 100 milliseconds
+                bbl 0
+                
 ;-----------------------------------------------------------------------------------------
 ; print the instructions for the subtraction demo and "built by" message
 ; note: these functions and the text they reference need to be on the same page.
 ;-----------------------------------------------------------------------------------------
 ; print the "built by" easter egg message
 builtby:        fim P0,lo(builttxt)
-                jun pageAprint
+                jun page9print
 
 ; print the instructions for the decimal subtraction demo
 subinstr:       fim P0,lo(subtxt)
-pageAprint:     fin P1                  ; fetch the character pointed to by P0 into P1
+page9print:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
                 jcn zn,$-3              ; not yet at the end of the string, go back for the next character
                 bbl 0
@@ -1663,11 +1686,13 @@ builttxt:       data " built by Jim Loos",CR,LF
 ; print the instructions for the multiplication and division demos
 ; note: these functions and the text they reference need to be on the same page.
 ;-----------------------------------------------------------------------------------------
+; print the instructions for the division demo
 divinstr:       fim P0,lo(dividetxt)
-                jun pageBprint
+                jun pageAprint
 
+; print the instructions for the multiplication demo
 multinstr:      fim P0,lo(multitxt)
-pageBprint:     fin P1                  ; fetch the character pointed to by P0 into P1
+pageAprint:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
                 jcn zn,$-3              ; not yet at the end of the string, go back for the next character
                 bbl 0
@@ -1687,41 +1712,49 @@ dividetxt:      data CR,LF,LF
 ; print functions for the number guessing game
 ; note: these functions and the text they reference need to be on the same page.
 ;-----------------------------------------------------------------------------------------
+; print the intro to the number guessing game
 guessgameintro: fim P0,lo(gameintrotxt)
-                jun pageCprint
+                jun pageBprint
 
+; prompt player to press the space bar
 guessgameprompt:fim P0,lo(prompttxt)
-                jun pageCprint
+                jun pageBprint
 
+; prompt player to enter guess
 promptguess:    fim P0,lo(guesstxt)
-                jun pageCprint
+                jun pageBprint
 
+; inform player of success
 success1:       fim P0,lo(successtxt1)
-                jun pageCprint
+                jun pageBprint
 
+; inform player of number of tries
 success2:       fim P0,lo(successtxt2)
-                jun pageCprint
+                jun pageBprint
 
+; inform play the guess was too low
 toolow:         fim P0,lo(toolowtxt)
-                jun pageCprint
+                jun pageBprint
 
+; inform player the guess wa too high
 toohigh:        fim P0,lo(toohightxt)
-                jun pageCprint
+                jun pageBprint
 
-again:          fim P0,lo(againtxt)
-pageCprint:     fin P1                  ; fetch the character pointed to by P0 into P1
+; ask if the player wants to play again
+playagain:      fim P0,lo(playagaintxt)
+pageBprint:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
                 jcn zn,$-3              ; not yet at the end of the string, go back for the next character
                 bbl 0
 
-gameintrotxt:   data CR,LF,LF,"Try to guess the number (0-99) that I'm thinking of.",0
+gameintrotxt:   data CLS,"Try to guess the number (0-99) that I'm thinking of.",0
 prompttxt       data CR,LF,"Press the Space Bar to continue...",0
 guesstxt        data CR,LF,"Your guess? (0-99) ",0
 successtxt1     data CR,LF,"That's it! You guessed it in ",0
 successtxt2     data " tries.",CR,LF,0
 toolowtxt       data CR,LF,"Too low.",CR,LF,0
 toohightxt      data CR,LF,"Too high.",CR,LF,0
-againtxt        data CR,LF,"Play again? (Y/N)",0
+playagaintxt    data CR,LF,"Play again? (Y/N)",0
 
                 org 0C00H               ; next page
 ;--------------------------------------------------------------------------------
@@ -1748,7 +1781,8 @@ againtxt        data CR,LF,"Play again? (Y/N)",0
 ; RAM 0,register 2, Status 0 - holds a counter used to generate random computer moves
 ; RAM 0,register 2, Status 3 - holds a flag that indicates that the computer has yet to make it's first move
 ;--------------------------------------------------------------------------------
-TTTGame:        jms clearBoard          ; clear the board for a new game
+TTTGame:        jms clearscreen
+TTTGame0:       jms clearBoard          ; clear the board for a new game
                 jms printSquares        ; show the player the squares
 
 TTTGame1:       jms printPrompt         ; prompt for player's selection
@@ -1760,14 +1794,14 @@ TTTGame1:       jms printPrompt         ; prompt for player's selection
                 jcn z,TTTGame2          ; no, continue below
                 jms printBoard          ; display the updated board with the player's win
                 jms printPlayerWon      ; yes, print "You Won!"
-                jun TTTGame             ; go back to start a new game
+                jun TTTGame0            ; go back to start a new game
 
 TTTGame2:       jms winningMove         ; is there a move the computer can make to win?
                 jcn z,TTTGame3          ; no, continue below
                 jms makeCompMove        ; yes, make the computer's winning move
                 jms printBoard          ; print the updated board with the computer's winning move
                 jms printCompWon        ; inform the player that the computer won
-                jun TTTGame             ; go back to start a new game
+                jun TTTGame0            ; go back to start a new game
 
 TTTGame3:       jms blockingMove        ; must the computer move to block the player?
                 jcn z,TTTGame4          ; no, continue below
@@ -1785,7 +1819,7 @@ TTTGame4:       jms strategicMove       ; Note: if you want to make it easy for 
 
 TTTGame5:       jms printBoard          ; print the updated board showing the draw
                 jms printGameTied       ; inform the player the game is a draw
-                jun TTTGame             ; go back to start a new game
+                jun TTTGame0            ; go back to start a new game
 
 ;-----------------------------------------------------------------------------------------
 ;clear the OXO grid (data RAM characters 20H-2FH) in preparation for a new game.
@@ -1843,22 +1877,22 @@ printBoard2:    jms putchar             ; print the character
 playerMove:     fim P7,grid             ; RAM 0 register 2
                 src P7
                 rd0                     ; read RAM 0 register 2 (grid) status character 0 into A
-playerMove00:   iac                     ; increment A
+playerMove1:    iac                     ; increment A
                 wr0                     ; write A to the the status character 0
-                jcn t,PlayerMove00      ; loop back until the start bit is detected
+                jcn t,playerMove1       ; loop back until the start bit is detected
                 jms getchar0            ; get the player's input
                 ld R2                   ; get the most significant nibble of the character
-                jcn zn,playerMove0      ; jump if it's not zero
+                jcn zn,playerMove2      ; jump if it's not zero
                 ldm 03H                 ; get the least significant nibble of the character
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
                 sub R3                  ; compare the least significant nibble to 03H by subtraction
-                jcn zn,playerMove0      ; jump if it's not control C (03H)
-                jun reset2              ; control C cancels, return to the menu
+                jcn zn,playerMove2      ; jump if it's not control C (03H)
+                jun reset1              ; control C cancels, return to the menu
 
-playerMove0:    ldm 3
+playerMove2:    ldm 3
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
                 sub R2
-                jcn zn,playerMove1      ; jump if the most significant nibble of the character input is not 3 (not a number 0-9)
+                jcn zn,playerMove3      ; jump if the most significant nibble of the character input is not 3 (not a number 0-9)
                 ld R3                   ; least significant nibble square number now in A
                 dac                     ; decrement A (1-9 now becomes 0-8)
                 xch R3                  ; save the square number in R3
@@ -1867,15 +1901,15 @@ playerMove0:    ldm 3
                 ld R3                   ; A contains the square number
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
                 sub R4                  ; subtract 9 from the square number
-                jcn c,playerMove1       ; jump if the square number is greater than 8
+                jcn c,playerMove3       ; jump if the square number is greater than 8
                 ld R3                   ; load the square number into A
                 fim P7,grid             ; address of squares register
                 xch R15                 ; address of selected square in P7
                 src P7                  ; P7 points to the square selected by the player
                 rdm                     ; retrieve the value stored in the square
-                jcn nz,playerMove1      ; jump if the selected square is already used
+                jcn nz,playerMove3      ; jump if the selected square is already used
                 bbl 1                   ; return 1 if legal square
-playerMove1:    bbl 0                   ; return 0 if illegal square
+playerMove3:    bbl 0                   ; return 0 if illegal square
 
 ;-----------------------------------------------------------------------------------------
 ; store 1 to indicate player's 'X' in the square pointed to by P7.
@@ -1926,15 +1960,15 @@ randomMove3:    isz R2,randomMove1      ; loop until all the squares in the grid
 ;-----------------------------------------------------------------------------------------
 hasPlayerWon:   jms calcWinLose         ; sum all 8 rows
                 fim P0,calcResults      ; point to results of calculations
-hasPlayerWon2:  src P0
+hasPlayerWon1:  src P0
                 rdm                     ; read the result calculated earlier
                 dac
                 dac
                 dac
-                jcn nz,hasPlayerWon1    ; if the result is zero, this row added up to 3, thus the player has won
+                jcn nz,hasPlayerWon2    ; if the result is zero, this row added up to 3, thus the player has won
                 bbl 1
-hasPlayerWon1:  inc R1                  ; point to the next data RAM location
-                isz R1,hasPlayerWon2    ; loop through all 16 data RAM characters
+hasPlayerWon2:  inc R1                  ; point to the next data RAM location
+                isz R1,hasPlayerWon1    ; loop through all 16 data RAM characters
                 bbl 0
 
 ;-----------------------------------------------------------------------------------------
@@ -1944,11 +1978,11 @@ hasPlayerWon1:  inc R1                  ; point to the next data RAM location
 ; if a winning move is possible, P7 points to the winning square.
 ;-----------------------------------------------------------------------------------------
 winningMove:    fim P7,calcResults      ; point to results of calculations
-winningMove2:   src P7
+winningMove1:   src P7
                 rdm                     ; read the sum of the row
                 iac
                 iac
-                jcn nz,winningMove1     ; continue below if the sum did not add up to -2
+                jcn nz,winningMove2     ; continue below if the sum did not add up to -2
                 ld  R15                 ; else, load the least significant nibble
                 inc R15                 ; make it point to the empty square in the winning row
                 src P7
@@ -1956,8 +1990,8 @@ winningMove2:   src P7
                 fim P7,grid
                 xch R15                 ; P7 now points to the empty square in the winning row
                 bbl 1                   ; return with P7 pointing to the empty square in the winning row
-winningMove1:   inc R15                 ; point P7 to the next data RAM character
-                isz R15,winningMove2    ; loop through all 16 data RAM characters
+winningMove2:   inc R15                 ; point P7 to the next data RAM character
+                isz R15,winningMove1    ; loop through all 16 data RAM characters
                 bbl 0                   ; no win possible this turn
 
 ;-----------------------------------------------------------------------------------------
@@ -1967,19 +2001,19 @@ winningMove1:   inc R15                 ; point P7 to the next data RAM characte
 ; if a blobking move is required, P7 points to the square for the blocking move.
 ;-----------------------------------------------------------------------------------------
 blockingMove:   fim P7,calcResults      ; point to results of calculations
-blockingMove2:  src P7
+blockingMove1:  src P7
                 rdm
                 dac
                 dac
-                jcn nz,blockingMove1    ; if not added up to 2
+                jcn nz,blockingMove2    ; if not added up to 2
                 inc R15
                 src P7
                 rdm
                 fim P7,grid
                 xch R15
                 bbl 1                   ; return with P7 pointing to square
-blockingMove1:  inc R15
-                isz R15,blockingMove2
+blockingMove2:  inc R15
+                isz R15,blockingMove1
                 bbl 0                   ; no block needed this turn
 
                 org 0D00H               ;next page
@@ -2087,11 +2121,9 @@ rowCalc3:       inc R7                  ; increment P3 to point to the next data
 ; this function and the text to be printed must all be on the same page.
 ;-----------------------------------------------------------------------------------------
 printSquares:   fim P0,lo(squarestxt)
-                jun pageFprint
-
-pageFprint:     fin P1                  ; fetch the character pointed to by P0 into P1
+pageDprint:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
-                jcn zn,pageFprint       ; go back for the next character
+                jcn zn,pageDprint       ; go back for the next character
                 bbl 0
 
 squarestxt:     data    CR,LF,LF,"TIC-TAC-TOE",CR,LF,LF
@@ -2100,24 +2132,5 @@ squarestxt:     data    CR,LF,LF,"TIC-TAC-TOE",CR,LF,LF
                 data    "1 2 3",CR,LF
                 data    "4 5 6",CR,LF
                 data    "7 8 9",CR,LF,0
-
-;-----------------------------------------------------------------------------------------
-; prints the contents of P0 as two hex digits
-;-----------------------------------------------------------------------------------------
-print2hex:      ld R0                   ; most significant nibble
-                jms print1hex
-                ld R1                   ; least significant nibble, fall through to the print1hex subroutine below
-
-;-----------------------------------------------------------------------------------------
-; print the accumulator as one hex digit, destroys contents of the accumulator
-;-----------------------------------------------------------------------------------------
-print1hex:      fim P1,30H              ; R2 = 3, R3 = 0;
-                clc
-                daa                     ; for values A-F, adds 6 and sets carry
-                jcn cn,print1hex1       ; no carry means 0-9
-                inc R2                  ; R2 = 4 for ascii 41h (A), 42h (B), 43h (C), etc
-                iac                     ; we need one extra for the least significant nibble
-print1hex1:     xch R3                  ; put that value in R3, fall through to the putchar subroutine below
-                jun putchar
 
                 end
