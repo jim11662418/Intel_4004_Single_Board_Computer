@@ -436,7 +436,7 @@ goodbye:        fim P0,lo(goodbyetxt)
 
 introtxt:       data CR,LF,LF
                 data "This is a simple game of subtraction. We start with a pile of",CR,LF
-                data "of 12 tokens. You and the computer take turns removing 1, 2 or 3",CR,LF
+                data "12 tokens. You and the computer take turns removing 1, 2 or 3",CR,LF
                 data "tokens from the pile. Whoever takes the last token wins.",CR,LF,LF
                 data "You move first.",CR,LF,0
 
