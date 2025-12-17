@@ -94,111 +94,93 @@ calcResults     equ CHIP0REG3           ; tic-tac-toe game
 reset:          fim P0,SERIALPORT
                 src P0
                 ldm 1
-                wmp                     ; set RAM serial output high to indicate 'MARK'
+                wmp                     ; set RAM serial output high to indicate 'MARK' or idle
 
                 jms initflash           ; flash the LEDs on startup just to let us know the CPU is alive
-reset1:         jms clearscreen         ; clear screen and home cursor
-                jms banner              ; print "Intel 4004 SBC" or "Intel 4040 SBC"
-reset2:         jms ledsoff             ; turn all LEDs off
-reset3:         jms menu                ; print the menu
-reset4:         jms getchar             ; wait for a character from serial input, the character is returned in P1
+mainmenu:       jms clearscreen         ; clear screen and home cursor
+                jms showCPU              ; print "Intel 4004 SBC" or "Intel 4040 SBC"
+mainmenu1:      jms newline
+                jms ledsoff             ; turn all LEDs off
+                jms menu                ; print the menu
+mainmenu2:      jms getchar             ; wait for a character from serial port, the character is returned in P1
 
-testfor0:       fim P2,'0'
-                jms compare             ; is the character from the serial port '0'?
-                jcn nz,testfor1         ; jump if no match
-                jun reset2              ; no menu item assigned to '0' yet
+                fim P2,'0'
+                jms compare             ; test if the character in P1 below '0'?
+                dac                     ; the 'compare' function returned 1 if the character in P1 was below '0'
+                jcn z,mainmenu3         ; after decrementing acc, zero means the character in P1 is below '0'
+                
+                fim P2,'9'
+                jms compare             ; test if the character in P1 above '9'?
+                dac                     ; the 'compare' function returned 2 if the character in P1 was above '9'
+                dac                     
+                jcn z,mainmenu3         ; after decrementing acc twice, zero means the character in P1 is above '9'  
+                
+; the character in P1 is '0'..'9'     
+                ldm  0
+                xch  R9                 ; clear ESCAPE counter
+                fim  P0,lo(jumptable)   ; get the address of the jump table into P0
+                ld   R3                 ; get the least signficant nibble of input character from R3
+                clc                     ; clear carry in preparation for ADD with carry instruction
+                add  R1                 ; add to least signficant nibble of the character (0-9) to the LSB of the table address
+                xch  R1                 ; put the sum back into R1
+                jcn  nc,$+3             ; skip the INC instruction if there was no rollover from the ADD
+                inc  R0                 ; else, increment R0
+                fin  P0                 ; fetch the calculated jump address from the table into P0
+                jin  P0                 ; jump to the calculated address in P0
 
-testfor1:       fim P2,'1'
-                jms compare             ; is the character from the serial port '1'?
-                jcn nz,testfor2         ; jump if no match
-                jun leddemo1            ; '1' selects LED demo 1
-
-testfor2:       fim P2,'2'
-                jms compare             ; is the character from the serial port '2'?
-                jcn nz,testfor3         ; jump if no match
-                jun leddemo2            ; '2' selects LED demo 2
-
-testfor3:       fim P2,'3'
-                jms compare             ; is the character from the serial port '3'?
-                jcn nz,testfor4         ; jump if no match
-                jun adddemo             ; '3' selects decimal addition demo
-
-testfor4:       fim P2,'4'
-                jms compare             ; is the character from the serial port '4'?
-                jcn nz,testfor5         ; jump if no match
-                jun subdemo             ; '4' selects decimal subtraction demo
-
-testfor5:       fim P2,'5'
-                jms compare             ; is the character from the serial port '5'?
-                jcn nz,testfor6         ; jump if no match
-                jun multdemo            ; '5' selects decimal multiplication demo
-
-testfor6:       fim P2,'6'
-                jms compare             ; is the character from the serial port '6'?
-                jcn nz,testfor7         ; jump if no match
-                jun divdemo             ; '6' selects decimal division demo
-
-testfor7:       fim P2,'7'
-                jms compare             ; is the character from the serial port '7'?
-                jcn nz,testfor8         ; jump if no match
-                jun TTTGame             ; '7' selects Tic-Tac-Toe game
-
-testfor8:       fim P2,'8'
-                jms compare             ; is the character from the serial port '8'?
-                jcn nz,testfor9         ; jump if no match
-                jun guessgame           ; '8' selects number guessing game
-
-testfor9:       fim P2,'9'
-                jms compare             ; is the character from the serial port '9'?
-                jcn nz,nomatch          ; jump if no match
-                jun switchdemo          ; '9' selects rotary switch demo
-
-nomatch:        ld R9                   ; 'state' is kept in R9
-                jcn z,state0            ; jump if 'state' is 0
-
-                ldm 1
+; the character from the serial port in P1 is below '0' or above '9'
+mainmenu3:      fim  P2,ESCAPE
+                jms  compare            ; is it the ESCAPE key?
+                jcn  nz,mainmenu4       ; jump if not ESCAPE
+                inc  R9                 ; else, increment the counter  
+                jun  mainmenu2             ; and go back for another key
+                
+mainmenu4:      fim  P2,'?'
+                jms  compare            ; is it the '?' key?
+                jcn  z,mainmenu5        ; jump if it is the '?' key
+                ldm  0
+                xch  R9                 ; else, reset the counter
+                jun  mainmenu2          ; and go back for another key
+                
+mainmenu5:      ldm  2
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
-                sub R9                  ; compare 'state' in R9 to 1 by subtraction
-                jcn z,state1            ; jump if 'state' is 1
+                sub  R9                 ; compare the count in R9 to 2 by subtraction
+                jcn  z,mainmenu6        ; jump if the count is 2
+                ldm  0
+                xch  R9                 ; else, reset the counter
+                jun  mainmenu2          ; and go back for another key
 
-                ldm 2
-                clc                     ; clear carry in preparation for 'subtract with borrow' instruction
-                sub R9                  ; compare 'state' in R9 to 2 by subtraction
-                jcn z,state3            ; jump if 'state' is 2
+mainmenu6:      jms  clearscreen        ; ESCAPE,ESCAPE,'?' has been detected
+                jms  showCPU
+                jms  builtby            ; display the "built by" message
+                jms  guessgameprompt    ; prompt to press space      
+                jms  getchar
+                ldm  0
+                xch  R9                 ; clear the counter
+                jun  mainmenu           ; display the menu options, go back for the next character
 
-                ldm 0                   ; else reset 'state' back to zero
-                xch R9
-                jun reset2              ; display the menu options, go back for the next character
+; table of functions
+jumptable:      data lo(function0)      ; address of the function executed for '0'
+                data lo(function1)      ; address of the function executed for '1'
+                data lo(function2)      ; address of the function executed for '2'
+                data lo(function3)      ; address of the function executed for '3'
+                data lo(function4)      ; address of the function executed for '4'
+                data lo(function5)      ; address of the function executed for '5'
+                data lo(function6)      ; address of the function executed for '6'
+                data lo(function7)      ; address of the function executed for '7'
+                data lo(function8)      ; address of the function executed for '8'
+                data lo(function9)      ; address of the function executed for '9'
 
-state0:         fim P2,ESCAPE           ; state=0, we're waiting for the 1st ESCAPE
-                jms compare             ; is the character from the serial port ESCAPE?
-                jcn nz,reset2           ; if not ESCAPE, display the menu options, go back for the next character
-
-                ldm 1                   ; the 1st ESCAPE has been received
-                xch R9                  ; advance 'state' from 0 to 1
-                jun reset4              ; go back for the next character
-
-state1:         fim P2,ESCAPE           ; the 1st ESCAPE has been received, we're waiting for the 2nd ESCAPE
-                jms compare
-                jcn nz,state2           ; is the character ESCAPE?
-                ldm 2                   ; else advance 'state' from 1 to 2
-                xch R9
-                jun reset4              ; the 2nd ESCAPE has been received, go back for the next character
-
-state2:         ldm 0                   ; else reset 'state' back to 0
-                xch R9
-                jun reset2              ; display the menu options, go back for the next character
-
-state3:         ldm 0                   ; state=2, the 2nd ESCAPE has been received, now we're waiting for the "?"
-                xch R9                  ; reset 'state' back to 0
-                fim P2,"?"
-                jms compare             ; was it '?'
-                jcn nz,reset2           ; not '?', display the menu options, go back for the next character
-
-                jms newline             ; ESCAPE,ESCAPE,? has been detected
-                jms banner
-                jms builtby             ; display the "built by" message
-                jun reset2              ; display the menu options, go back for the next character
+function0:      jun mainmenu1           ; no menu item assigned to '0' yet
+function1:      jun leddemo1            ; '1' selects LED demo 1
+function2:      jun leddemo2            ; '2' selects LED demo 2
+function3:      jun adddemo             ; '3' selects decimal addition demo
+function4:      jun subdemo             ; '4' selects decimal subtraction demo
+function5:      jun multdemo            ; '5' selects decimal multiplication demo
+function6:      jun divdemo             ; '6' selects decimal division demo
+function7:      jun TTTGame             ; '7' selects Tic-Tac-Toe game
+function8:      jun guessgame           ; '8' selects number guessing game
+function9:      jun switchdemo          ; '9' selects rotary switch demo
 
 ;--------------------------------------------------------------------------------------------------
 ; turn off all four LEDs connected to the 4002 output port
@@ -217,19 +199,19 @@ ledsoff:        fim P0,LEDPORT
 ; Overwrites the contents of P2.
 ; Adapted from code in the "MCS-4 Micro Computer Set Users Manual" on page 166:
 ;--------------------------------------------------------------------------------------------------
-compare:        xch R4                  ; contents of R7 (high nibble of P3) into accumulator
+compare:        xch R4                  ; contents of R4 (high nibble of P2) into accumulator
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction                
-                sub R2                  ; compare the high nibble of P1 (R2) to the high nibble of P3 (R6) by subtraction
-                jcn cn,greater          ; no carry means that R2 > R6
+                sub R2                  ; compare the high nibble of P1 (R2) to the high nibble of P2 (R4) by subtraction
+                jcn cn,greater          ; no carry means that P1 > P2
                 jcn zn,lesser           ; jump if the accumulator is not zero (low nibbles not equal)
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
-                xch R5                  ; contents of R6 (low nibble of P3) into accumulator
-                sub R3                  ; compare the low nibble of P1 (R3) to the low nibble of P3 (R7) by subtraction
-                jcn cn,greater          ; no carry means R3 > R7
+                xch R5                  ; contents of R5 (low nibble of P2) into accumulator
+                sub R3                  ; compare the low nibble of P1 (R3) to the low nibble of P2 (R5) by subtraction
+                jcn cn,greater          ; no carry means P1 > P2
                 jcn zn,lesser           ; jump if the accumulator is not zero (high nibbles not equal)
-                bbl 0                   ; 0 indicates P1=P3
-lesser:         bbl 1                   ; 1 indicates P1<P3
-greater:        bbl 2                   ; 2 indicates P1>P3
+                bbl 0                   ; 0 indicates P1 = P2
+lesser:         bbl 1                   ; 1 indicates P1 < P2
+greater:        bbl 2                   ; 2 indicates P1 > P2
 
 ;-----------------------------------------------------------------------------------------
 ; position the cursor to the start of the next line
@@ -304,7 +286,7 @@ subtract2:      bbl 0                   ; no overflow, the difference is positiv
 ; most significant digit at 1FH.
 ; P2 points to the subtrahend is stored in RAM register 20H least significant digit at 20H,
 ; most significant digit at 2FH.
-; the subtrahend is subtracted from the minuend. The difference replaces the minuend i.e. *P1=*P1-*P2
+; the subtrahend is subtracted from the minuend. The difference replaces the minuend.
 ; Adapted from code in "MCS-4 Micro Computer Set Users Manual, Feb. 73" page 4-23.
 ;--------------------------------------------------------------------------------
 subdemo:        jms subinstr
@@ -320,7 +302,7 @@ subdemo1:       fim P2,minuend          ; P2 points the memory register where th
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the first number (minuend)
                 jcn z,subdemo2
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
 subdemo2:       jms newline
                 jms secondnum           ; prompt for the second number (subtrahend)
@@ -329,7 +311,7 @@ subdemo2:       jms newline
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the second number (subtrahend)
                 jcn z,subdemo3
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
 subdemo3:       jms newline
                 jms prndiff             ; print "Difference:"
@@ -379,7 +361,7 @@ adddemo1:       fim P2,accumulator      ; P2 points the memory register where th
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the first number
                 jcn z,adddemo2
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
 adddemo2:       jms newline
                 jms secondnum           ; prompt for the second number
@@ -388,7 +370,7 @@ adddemo2:       jms newline
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the second number
                 jcn z,adddemo3
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
 adddemo3:       jms newline
                 jms prnsum              ; print "Sum: "
@@ -450,7 +432,7 @@ multdemo1:      fim P2,multiplicand     ; P2 points the memory register where th
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the multiplicand (8 digits max) into RAM at 15H-1CH
                 jcn z,multdemo2
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
 multdemo2:      jms newline
                 jms secondnum           ; prompt for the multiplier
@@ -459,7 +441,7 @@ multdemo2:      jms newline
                 xch R13                 ; R13 is the digit counter
                 jms getnumber           ; get the multiplier (8 digits max) into RAM at 24H-2BH
                 jcn z,multdemo3
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
 multdemo3:      jms newline
                 jms prnproduct          ; print "Product: "
@@ -541,7 +523,7 @@ divdemo1:       fim P2,dividend         ; P2 points the memory register where th
                 xch R13                 ; R13 is the digit counter for the getnumber function
                 jms getnumber           ; get the dividend
                 jcn z,divdemo2
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
 divdemo2:       jms newline
                 jms secondnum           ; prompt for the divisor
@@ -550,7 +532,7 @@ divdemo2:       jms newline
                 xch R13                 ; R13 is the digit counter for the getnumber function (8 digits)
                 jms getnumber           ; get the divisor
                 jcn z,divdemo3
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
 divdemo3:       jms newline
                 jms prnquotient         ; print "Quotient:"
@@ -568,14 +550,15 @@ divdemo3:       jms newline
 ; Flash the LEDs from right to left and then from left to right in a "Knight Rider"
 ; or "Cylon" type pattern. Exit when a key is pressed.
 ;-----------------------------------------------------------------------------------------
-leddemo1:       ldm 0001B               ; start with the first LED
+leddemo1:       jms guessgameprompt
+                ldm 0001B               ; start with the first LED
                 fim P0,LEDPORT
                 src P0
 leddemo1a:      wmp                     ; output to port to turn on LED
                 xch R0                  ; the accumulator need to be saved in R0 since the 'bbl' instruction overwrites the accumulator
                 jms leddelay            ; delay for 100 milliseconds. abort by jumping to reset if start bit detected
                 jcn z,$+4               ; jump around  the next instruction if the start bit not detected
-                jun reset1              ; a key has been pressed (start bit detected), go back to the beginning
+                jun mainmenu              ; a key has been pressed (start bit detected), go back to the beginning
 
                 xch R0                  ; restore the accumulator from R0
                 clc                     ; the carry bit needs to be cleared since the delay subroutine sets the carry bit
@@ -586,7 +569,7 @@ leddemo1b:      wmp
                 xch R0
                 jms leddelay            ; delay for 100 milliseconds. abort by jumping to reset if start bit detected
                 jcn z,$+4               ; jump around  the next instruction if the start bit not detected
-                jun reset1              ; a key has been pressed (start bit detected), go back to the beginning
+                jun mainmenu              ; a key has been pressed (start bit detected), go back to the beginning
                 xch R0
                 clc
                 rar
@@ -599,30 +582,31 @@ leddemo1b:      wmp
 ; Flash the LEDs from right to left in a "chaser" pattern.
 ; Exit when a key is pressed.
 ;-----------------------------------------------------------------------------------------
-leddemo2:       fim P0,LEDPORT          ; define the led port for port writes
+leddemo2:       jms guessgameprompt
+leddemo2a:      fim P0,LEDPORT          ; define the led port for port writes
                 src P0
                 ldm 0001B               ; one LED
-                jms leddemo2a
+                jms leddemo2b
                 ldm 0011B               ; two LEDs
-                jms leddemo2a
+                jms leddemo2b
                 ldm 0111B               ; three LEDs
-                jms leddemo2a
+                jms leddemo2b
                 ldm 1111b               ; all four LEDs
-                jms leddemo2a
+                jms leddemo2b
                 ldm 1110B               ; back to three LEDs
-                jms leddemo2a
+                jms leddemo2b
                 ldm 1100B               ; back to two LEDs
-                jms leddemo2a
+                jms leddemo2b
                 ldm 1000B               ; back to one LED
-                jms leddemo2a
+                jms leddemo2b
                 ldm 0000B               ; all LEDs off
-                jms leddemo2a
-                jun leddemo2            ; go back and repeat
+                jms leddemo2b
+                jun leddemo2a           ; go back and repeat
 
-leddemo2a:      wmp                     ; output to port to turn on LEDs
+leddemo2b:      wmp                     ; output to port to turn on LEDs
                 jms leddelay            ; delay for 100 milliseconds
                 jcn z,$+4               ; jump around the next instruction if the start bit not detected
-                jun reset1              ; a key has been pressed (start bit detected), go back to the beginning
+                jun mainmenu              ; a key has been pressed (start bit detected), go back to the beginning
                 bbl 0
 
 ;-----------------------------------------------------------------------------------------
@@ -693,7 +677,7 @@ switchdemo3:    xch R1
                 jms putchar             ; print the character in P1
                 jun switchdemo1         ; go back and do it again if TEST input is 0 (the start bit has not been received)
 
-switchdemo4:    jun reset1
+switchdemo4:    jun mainmenu
 
 positions:      data    "0123456789ABCDEF"
 
@@ -927,7 +911,7 @@ prnquot7:       bbl 0                   ; finished with all 16 digits, return to
 ; therefore the sense of the bit needs to be inverted in software. 
 ; returns the 8 bit received character in P1 (R2,R3). also uses P7 (R14,R15).
 ;-----------------------------------------------------------------------------------------              
-getchar:        jcn t,$                 ; wait for the start bit
+getchar:        jcn t,$                 ; wait for serial input to go low (the start bit)
 getchar0:       ldm 16-4                ; 4 bits
                 xch R14                 ; R14 is the counter for the first four bits (0-3)
                 ldm 16-3
@@ -956,10 +940,11 @@ getchar6:       rar                     ; rotate received bit into accumulator
                 nop                     ; 9 cycles/bit
                 isz R14,getchar4        ; repeat until 4 bits (4-8) received.
                 xch R2                  ; save received bits 4-7 in R2
+                nop
+                nop
 ; check the stop bit...
-                jcn tn, getchar7        ; jump if the stop bit = 1
-                bbl 1                   ; else return 1 to indicate stop bit was 0 (timing error)
-getchar7:       bbl 0                   ; return 0 to indicate correct timing
+                jcn tn,$                ; wait for serial input to go high (the stop bit)
+                bbl 0
 
                 org 0400H               ; next page
 ;-------------------------------------------------------------------------------
@@ -1082,9 +1067,9 @@ guessgame4:     fim P1,attempts
                 fim P2,guess
                 jms getnumber           ; get the player's guess as two digits
                 jcn z,guessgame5
-                jun reset1              ; control C exits
+                jun mainmenu              ; control C exits
 
-; the pseudo-random number is subtracted from the player's guess. The difference replaces the guess i.e. *P1=*P1-*P2
+; the pseudo-random number is subtracted from the player's guess. The difference replaces the guess
 guessgame5:     fim P1,guess            ; player's guess
                 fim P2,randomnumber     ; pseudo-random number
                 jms subtract            ; subtract the pseudo-random number from the player's guess
@@ -1104,14 +1089,8 @@ guessgame7:     src P1
                 jms prndigits
                 jms success2
                 jms playagain           ; prompt "Play again? (Y/N)"
-                jms getchar
-                fim P2,'Y'              ; is it "Y"
-                jms compare
                 jcn z,guessgame         ; go back for another game
-                fim P2,'y'              ; is it "y"
-                jms compare
-                jcn z,guessgame         ; go back for another game
-                jun reset1
+                jun mainmenu
 
 ; the difference  between the pseudo-random number and the player's guess is neither negative
 ; nor zero thus the player's guess must be greater than the pseudo-random number.
@@ -1463,7 +1442,7 @@ menu:           fim P0,lo(menutxt)      ; point to the first character of the st
                 jcn zn,$-3              ; go back for the next character
                 bbl 0
 
-menutxt:        data CR,LF,LF
+menutxt:        data CR,LF
                 data "1 - LED demo 1",CR,LF
                 data "2 - LED demo 2",CR,LF
                 data "3 - Addition demo",CR,LF
@@ -1533,6 +1512,13 @@ clrram1:        src P2
 clearscreen:    fim P0,lo(clearscreentxt)
                 jun page7print
 
+; print 'Intel 4004' or 'Intel 4040'
+showCPU:        fim P0,lo(i4004txt)     ; assume 4004
+                jms detectCPU           ; detect 4004 or 4040 cpu
+                jcn zn,showCPU1         ; non-zero means 4004
+                fim P0,lo(i4040txt)
+showCPU1:       jun page7print
+
 ; prompt for the first integer
 firstnum:       fim P0,lo(firsttxt)
                 jun page7print
@@ -1545,10 +1531,6 @@ secondnum:      fim P0,lo(secondtxt)
 prnsum:         fim P0,lo(sumtxt) 
                 jun page7print
 
-; print 'Overflow!'
-prnoverflow:    fim P0,lo(overtxt)  
-                jun page7print
-
 ; print 'Difference:'
 prndiff:        fim P0,lo(difftxt)  
                 jun page7print
@@ -1559,10 +1541,19 @@ prnproduct:     fim P0,lo(producttxt)
 
 ; print 'Quotient:'
 prnquotient:    fim P0,lo(quottxt) 
+                jun page7print
+
+; print 'Overflow!'
+prnoverflow:    fim P0,lo(overtxt)  
 page7print:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
                 jcn zn,$-3              ; go back for the next character
                 bbl 0
+
+clearscreentxt  data CLS,0
+
+i4004txt:       data "Intel 4004 SBC",0
+i4040txt:       data "Intel 4040 SBC",0
 
 firsttxt:       data "First integer:  ",0
 secondtxt:      data "Second integer: ",0
@@ -1571,17 +1562,6 @@ difftxt:        data "Difference:    " ,0
 producttxt:     data "Product:        ",0
 quottxt:        data "Quotient:       ",0
 overtxt         data "Overflow!",0
-
-banner:         fim P0,lo(banner04txt)  ; assume 4004
-                jms detectCPU           ; detect 4004 or 4040 cpu
-                jcn zn,banner1          ; non-zero means 4004
-                fim P0,lo(banner40txt)
-banner1:        jun page7print
-
-banner04txt:    data CR,LF,"Intel 4004 SBC",0
-banner40txt:    data CR,LF,"Intel 4040 SBC",0
-
-clearscreentxt  data CLS,0
 
                 org 0800H               ; next page
 ;-----------------------------------------------------------------------------------------
@@ -1617,20 +1597,32 @@ addtxt:         data CR,LF,LF
                 data "The second integer is added to the first. ^C exits.",0
 
 computerwontxt: data CR,LF
-                data "The Computer wins!",0
+                data "The Computer wins!",CR,LF,0
                 
 playerWontxt:   data CR,LF
-                data "You Won!",0                
+                data "You Won!",CR,LF,0                
 
 tiegametxt:     data CR,LF
                 data "The game is a draw!",CR,LF,0
 
 moveprompttxt:  data CR,LF
                 data "Your move? (1-9) ",0
-                
-
 
                 org 0900H               ; next page
+;-----------------------------------------------------------------------------------------
+; part of the Tic-Tac-Toe game...
+; clear the OXO grid (data RAM characters 20H-2FH) in preparation for a new game.
+;-----------------------------------------------------------------------------------------
+clearBoard:     ldm 1
+                fim P5,grid
+                src P5
+                wr3                      ; set the flag to indicate indicate that the computer has yet to make it's first move
+                ldm 0
+clearBoard1:    src P5
+                wrm                      ; clear the data RAM character
+                isz R11,clearBoard1      ; loop back until all 16 characters are cleared
+                bbl 0      
+                
 ;-----------------------------------------------------------------------------------------
 ; flash the LEDs on startup just to let us know the CPU is alive
 ;-----------------------------------------------------------------------------------------                
@@ -1673,13 +1665,13 @@ page9print:     fin P1                  ; fetch the character pointed to by P0 i
                 jcn zn,$-3              ; not yet at the end of the string, go back for the next character
                 bbl 0
 
+builttxt:       data " built by Jim Loos",CR,LF
+                data "Firmware assembled on ",DATE," at ",TIME,CR,LF,0
+
 subtxt:         data CR,LF,LF
                 data "Subtraction demo:",CR,LF,LF
                 data "Enter two integers from 1 to 16 digits.",CR,LF
                 data "The second integer is subtracted from the first. ^C exits.",0
-
-builttxt:       data " built by Jim Loos",CR,LF
-                data "Firmware assembled on ",DATE," at ",TIME,0
 
                 org 0A00H               ; next page
 ;-----------------------------------------------------------------------------------------
@@ -1697,15 +1689,15 @@ pageAprint:     fin P1                  ; fetch the character pointed to by P0 i
                 jcn zn,$-3              ; not yet at the end of the string, go back for the next character
                 bbl 0
 
-multitxt:       data CR,LF,LF
-                data "Multiplication demo:",CR,LF,LF
-                data "Enter two integers from 1 to 8 digits.",CR,LF
-                data "The first integer is multiplied by the second. ^C exits.",0
-
 dividetxt:      data CR,LF,LF
                 data "Division demo:",CR,LF,LF
                 data "Enter two integers from 1 to 7 digits.",CR,LF
                 data "The first integer is divided by the second. ^C exits.",0
+                
+multitxt:       data CR,LF,LF
+                data "Multiplication demo:",CR,LF,LF
+                data "Enter two integers from 1 to 8 digits.",CR,LF
+                data "The first integer is multiplied by the second. ^C exits.",0
 
                 org 0B00H               ; next page
 ;-----------------------------------------------------------------------------------------
@@ -1738,19 +1730,30 @@ toolow:         fim P0,lo(toolowtxt)
 
 ; inform player the guess wa too high
 toohigh:        fim P0,lo(toohightxt)
-                jun pageBprint
-
-; ask if the player wants to play again
-playagain:      fim P0,lo(playagaintxt)
 pageBprint:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
                 jcn zn,$-3              ; not yet at the end of the string, go back for the next character
                 bbl 0
 
+; ask if the player wants to play again. return zero if the answer is 'Y' or 'y', else return 1.
+playagain:      fim P0,lo(playagaintxt)
+                fin P1                  ; fetch the character pointed to by P0 into P1
+                jms txtout              ; print the character, increment the pointer to the next character
+                jcn zn,$-3              ; not yet at the end of the string, go back for the next character
+                jms getchar
+                fim P2,'Y'              ; is it "Y"
+                jms compare
+                jcn z,playagain2        ; return with zero
+                fim P2,'y'              ; is it "y"
+                jms compare
+                jcn z,playagain2        ; return with zero
+playagain1:     bbl 1
+playagain2:     bbl 0
+
 gameintrotxt:   data CLS,"Try to guess the number (0-99) that I'm thinking of.",0
-prompttxt       data CR,LF,"Press the Space Bar to continue...",0
+prompttxt       data CR,LF,"Press SPACE to continue...",0
 guesstxt        data CR,LF,"Your guess? (0-99) ",0
-successtxt1     data CR,LF,"That's it! You guessed it in ",0
+successtxt1     data CR,LF,"You guessed it in ",0
 successtxt2     data " tries.",CR,LF,0
 toolowtxt       data CR,LF,"Too low.",CR,LF,0
 toohightxt      data CR,LF,"Too high.",CR,LF,0
@@ -1794,14 +1797,18 @@ TTTGame1:       jms printPrompt         ; prompt for player's selection
                 jcn z,TTTGame2          ; no, continue below
                 jms printBoard          ; display the updated board with the player's win
                 jms printPlayerWon      ; yes, print "You Won!"
-                jun TTTGame0            ; go back to start a new game
+                jms playagain
+                jcn z,TTTGame           ; go back to start a new game
+                jun mainmenu            ; else, return to the main menu
 
 TTTGame2:       jms winningMove         ; is there a move the computer can make to win?
                 jcn z,TTTGame3          ; no, continue below
                 jms makeCompMove        ; yes, make the computer's winning move
                 jms printBoard          ; print the updated board with the computer's winning move
                 jms printCompWon        ; inform the player that the computer won
-                jun TTTGame0            ; go back to start a new game
+                jms playagain
+                jcn z,TTTGame           ; go back to start a new game
+                jun mainmenu            ; else, return to the main menu
 
 TTTGame3:       jms blockingMove        ; must the computer move to block the player?
                 jcn z,TTTGame4          ; no, continue below
@@ -1819,20 +1826,9 @@ TTTGame4:       jms strategicMove       ; Note: if you want to make it easy for 
 
 TTTGame5:       jms printBoard          ; print the updated board showing the draw
                 jms printGameTied       ; inform the player the game is a draw
-                jun TTTGame0            ; go back to start a new game
-
-;-----------------------------------------------------------------------------------------
-;clear the OXO grid (data RAM characters 20H-2FH) in preparation for a new game.
-;-----------------------------------------------------------------------------------------
-clearBoard:     ldm 1
-                fim P5,grid
-                src P5
-                wr3                      ; set the flag to indicate indicate that the computer has yet to make it's first move
-                ldm 0
-clearBoard1:    src P5
-                wrm                      ; clear the data RAM character
-                isz R11,clearBoard1      ; loop back until all 16 characters are cleared
-                bbl 0
+                jms playagain
+                jcn z,TTTGame           ; go back to start a new game
+                jun mainmenu            ; else, return to the main menu
 
 ;-----------------------------------------------------------------------------------------
 ; prints the OXO grid
@@ -1887,7 +1883,7 @@ playerMove1:    iac                     ; increment A
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
                 sub R3                  ; compare the least significant nibble to 03H by subtraction
                 jcn zn,playerMove2      ; jump if it's not control C (03H)
-                jun reset1              ; control C cancels, return to the menu
+                jun mainmenu            ; control C cancels, return to the menu
 
 playerMove2:    ldm 3
                 clc                     ; clear carry in preparation for 'subtract with borrow' instruction
@@ -1967,6 +1963,7 @@ hasPlayerWon1:  src P0
                 dac
                 jcn nz,hasPlayerWon2    ; if the result is zero, this row added up to 3, thus the player has won
                 bbl 1
+                
 hasPlayerWon2:  inc R1                  ; point to the next data RAM location
                 isz R1,hasPlayerWon1    ; loop through all 16 data RAM characters
                 bbl 0
@@ -1990,6 +1987,7 @@ winningMove1:   src P7
                 fim P7,grid
                 xch R15                 ; P7 now points to the empty square in the winning row
                 bbl 1                   ; return with P7 pointing to the empty square in the winning row
+                
 winningMove2:   inc R15                 ; point P7 to the next data RAM character
                 isz R15,winningMove1    ; loop through all 16 data RAM characters
                 bbl 0                   ; no win possible this turn
@@ -2012,6 +2010,7 @@ blockingMove1:  src P7
                 fim P7,grid
                 xch R15
                 bbl 1                   ; return with P7 pointing to square
+                
 blockingMove2:  inc R15
                 isz R15,blockingMove1
                 bbl 0                   ; no block needed this turn
@@ -2123,10 +2122,10 @@ rowCalc3:       inc R7                  ; increment P3 to point to the next data
 printSquares:   fim P0,lo(squarestxt)
 pageDprint:     fin P1                  ; fetch the character pointed to by P0 into P1
                 jms txtout              ; print the character, increment the pointer to the next character
-                jcn zn,pageDprint       ; go back for the next character
+                jcn zn,$-3              ; not yet at the end of the string, go back for the next character
                 bbl 0
 
-squarestxt:     data    CR,LF,LF,"TIC-TAC-TOE",CR,LF,LF
+squarestxt:     data    "TIC-TAC-TOE",CR,LF,LF
                 data    "You will be 'X', the computer will be 'O'",CR,LF
                 data    "The move positions are:",CR,LF,LF
                 data    "1 2 3",CR,LF
