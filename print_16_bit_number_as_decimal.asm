@@ -167,7 +167,7 @@ prnDecimal4a:   jms sub16               ; subtract 10 from the number in P2P3
                 jcn z,prnDecimal5       ; else, skip the hundreds digit if the leading zero flag is 0
 prnDecimal4b:   jms putchar             ; print the hundreds digit
                 
-;units digit...   
+; units digit...   
 ; whatever remains in P2P3 at this point represents the units digit            
 prnDecimal5:    ld R7                   ; move what remains in P2P3 to P1 and convert to ASCII
                 xch R3
