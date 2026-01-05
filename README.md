@@ -10,7 +10,7 @@ I built this Intel 4004 Single Board Computer a few years back to celebrate the 
 - 4 LEDs controlled by an output port on one of the 4002s
 - 16 position rotary switch for selection of program options
 - RS232 console serial port
-<p align="center"><img src="/images/4004%20SBC.JPG"/>
+<p align="center"><img src="/images/4004%20SBC.JPEG"/>
 <p align="center">Home-brew Intel 4004 SBC</p><br>
 
 ### 4004 SBC CPU and Memory
