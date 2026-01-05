@@ -36,14 +36,7 @@ The 4049 CMOS Inverters are used as buffers and level converters.
 <p align="center">4004 SBC I/O Schematic</p><br>
 
 ### 4004 SBC Power Supply
-The 4004 single board computer's power supply shown below uses a Radio Shack transformer and a dual linear adjustable power supply module purchased on eBay to produce to +5VDC and -10VDC that the SBC requires. 
-
-<p align="center"><img src="/images/4004%20SBC%20PS.png"/>
-<p align="center">4004 SBC Power Supply Schematic</p>
-<p align="center"><img src="/images/PS2.JPG"/>
-<p align="center">4004 SBC Power Supply Transformer</p><br>
-<p align="center"><img src="/images/PS1.JPG"/>
-<p align="center">4004 SBC Power Supply Module</p><br>
+The 4004 single board computer's power supply consists of a regulated 5VDC 'wall-wart' type power supply and an isolated DC-DC converter (5VDC in, +5VDC and -5VDC out) to produce the +5VDC and -10VDC that the SBC requires. 
 
 ### 4004 SBC Firmware
 The [4004 SBC firmware](firmware.asm) was assembled with the [Macro Assembler AS](http://john.ccac.rwth-aachen.de:8000/as/). 
