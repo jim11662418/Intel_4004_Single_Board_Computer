@@ -13,6 +13,10 @@ I built this Intel 4004 Single Board Computer a few years back to celebrate the 
 <p align="center"><img src="/images/4004%20SBC.JPEG"/>
 <p align="center">Home-brew Intel 4004 SBC</p><br>
 
+
+https://github.com/user-attachments/assets/c0ff507b-9bfb-4e0b-9569-e71ae315d2ae
+
+
 ### 4004 SBC CPU and Memory
 The CPU and Memory section of the Single Board Computer consists of an Intel 4004 CPU, a 4201 Clock Generator, two 4002 RAM chips with output ports (for a total of 640 bits of RAM), a 4289 Standard Memory Interface which provides the interface to a 2732 4K EPROM for program memory and a 4265 General purpose I/O Device.
 <p align="center"><img src="/images/4004%20SBC%20CPU.png"/>
