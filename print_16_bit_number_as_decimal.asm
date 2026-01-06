@@ -81,7 +81,7 @@ prnDecimal:     ldm 0
                 xch R1                  ; clear the leading zero flag (zero means do not print '0')
                 
 ; ten thousands digit
-; count the number of time 10,000 can be subtracted from the number in P2P3 before causing an underflow              
+; count the number of times 10,000 can be subtracted from the number in P2P3 before causing an underflow              
                 ldm 0
                 xch R0                  ; clear the digit counter
                 fim P6,10000 >> 8       ; high byte of 10000
@@ -101,7 +101,7 @@ prnDecimal1:    jms sub16               ; subtract 10000 from the number in P2P3
                 xch R1                  ; set the leading zero flag (print all zeros from now on)
 
 ; thousands digit
-; count the number of time 1000 can be subtracted from the number in P2P3 before causing an underflow   
+; count the number of times 1000 can be subtracted from the number in P2P3 before causing an underflow   
 prnDecimal2:    ldm 0
                 xch R0                  ; clear the digit counter
                 fim P6,1000 >> 8        ; high byte of 1000
@@ -124,7 +124,7 @@ prnDecimal2b:   jms putchar             ; print the thoudands digitt
                 xch R1                  ; set the leading zero flag (print all zeros from now on)                
 
 ; hundreds digit...  
-; count the number of time 100 can be subtracted from the number in P2P3 before causing an underflow          
+; count the number of times 100 can be subtracted from the number in P2P3 before causing an underflow          
 prnDecimal3:    ldm 0
                 xch R0                  ; clear the digit counter
                 fim P6,100 >> 8         ; high byte of 100
@@ -147,7 +147,7 @@ prnDecimal3b:   jms putchar             ; print the hundreds digit
                 xch R1                  ; set the leading zero flag (print all zeros from now on)
                 
 ; tens digit...   
-; count the number of time 10 can be subtracted from the number in P2P3 before causing an underflow                        
+; count the number of times 10 can be subtracted from the number in P2P3 before causing an underflow                        
 prnDecimal4:    ldm 0
                 xch R0                  ; clear the digit counter
                 fim P6,10 >> 8          ; high byte of 10
