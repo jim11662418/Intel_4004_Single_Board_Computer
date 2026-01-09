@@ -33,7 +33,7 @@ The output port on the first 4002 (address 0x40) is used to control the four LED
 
 The 4004's TEST input is used for the RS232 serial receive input.
 
-One of the 4265's ports (port W  at address 0x80) is used to read the four bit, sixteen position rotary switch. 
+One of the 4265's ports (port W  at address 0x80) is used to read the four bit, sixteen position rotary switch. The least significant bit of the 4265's port Z and the least significant bit of port Y can be optionally connected to a TTL to USB Serial Adapter for a second 9600 bps serial port.
 
 The 4049 CMOS Inverters are used as buffers and level converters.
 <p align="center"><img src="/images/4004%20SBC%20IO.png"/>
